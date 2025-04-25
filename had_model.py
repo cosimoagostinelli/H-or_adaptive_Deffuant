@@ -101,7 +101,7 @@ class HAD_model:
 
 
     
-    def simulate(self, T, condition='std', mu=1., split_overlap=True, split_seed='random', alpha=1.):
+    def simulate(self, T, condition='std', mu=1., split_overlap=True, split_seed='random', alpha=1., adaptive=True):
         """
         Simulates the higher-order adaptive Deffuant dynamics.
 
@@ -131,6 +131,10 @@ class HAD_model:
         alpha (float):
                 parameter controlling: (i) the probability of joining (or not) a group 
                 after splitting and (ii) the probability to join a group of a given size.
+
+        adaptive (bool):
+                whether to simulate an adaptive process, i.e. with split and rewiring of
+                groups (default), or just a Deffuant dynamics on a static hypergraph.
         -----------
         
         Return (dict):
@@ -163,40 +167,42 @@ class HAD_model:
                         self.opinions[n] = self.opinions[n] * (1-mu) + mu * mean
                 # splitting
                 else:
-                    #keep track of groups that have just split
-                    old_groups.append(group)
-                    # if the current group is equal to a subgroup resulting from previous
-                    # splitting, I remove it from to_rewire because it's going to be split
-                    # again and we have to rewire only the minimal subgroups.
-                    if group in to_rewire:
-                        to_rewire.remove(group)
-                    splt = self.split(group, split_overlap, split_seed)
-                    to_rewire += [i for i in splt if i not in to_rewire]
-  
-            # rewire groups that have just split
-            while len(to_rewire)>0:
-                tr = random.choice(to_rewire)
-                p = 1. / ( len(tr) ** alpha)
-                # the group joins another one
-                if random.random() < p:
-                    self.groups.remove(tr)
-                    probs = [1. / (len(j|tr) ** alpha) for j in self.groups]
-                    probs = np.array(probs) / sum(probs)
-                    new_g = old_groups[0]
-                    while new_g in old_groups or new_g in self.groups:
-                        idx = np.random.choice(len(self.groups), p=probs)
-                        target = self.groups[idx]
-                        new_g = tr|target
-                    # merge groups
-                    self.groups.remove(target)
-                    self.groups.append(new_g)
-                    to_rewire.remove(tr)
-                    if target in to_rewire:
-                        to_rewire.remove(target)
-                
-                # the group does not rewire
-                else:
-                    to_rewire.remove(tr)
+                    if adaptive:
+                        #keep track of groups that have just split
+                        old_groups.append(group)
+                        # if the current group is equal to a subgroup resulting from previous
+                        # splitting, I remove it from to_rewire because it's going to be split
+                        # again and we have to rewire only the minimal subgroups.
+                        if group in to_rewire:
+                            to_rewire.remove(group)
+                        splt = self.split(group, split_overlap, split_seed)
+                        to_rewire += [i for i in splt if i not in to_rewire]
+
+            if adaptive:
+                # rewire groups that have just split
+                while len(to_rewire)>0:
+                    tr = random.choice(to_rewire)
+                    p = 1. / ( len(tr) ** alpha)
+                    # the group joins another one
+                    if random.random() < p:
+                        self.groups.remove(tr)
+                        probs = [1. / (len(j|tr) ** alpha) for j in self.groups]
+                        probs = np.array(probs) / sum(probs)
+                        new_g = old_groups[0]
+                        while new_g in old_groups or new_g in self.groups:
+                            idx = np.random.choice(len(self.groups), p=probs)
+                            target = self.groups[idx]
+                            new_g = tr|target
+                        # merge groups
+                        self.groups.remove(target)
+                        self.groups.append(new_g)
+                        to_rewire.remove(tr)
+                        if target in to_rewire:
+                            to_rewire.remove(target)
+                    
+                    # the group does not rewire
+                    else:
+                        to_rewire.remove(tr)
 
             op_t = self.opinions.copy()
             for n in nodes:
