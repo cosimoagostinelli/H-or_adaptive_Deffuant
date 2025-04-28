@@ -107,9 +107,14 @@ class HAD_model:
         Parameters:
         -----------
         T (int):
-                number of time steps. If None (default) the model runs until the steady
-                state is reached. The convergence criterion is the one presented in
-                https://www.nature.com/articles/s42005-022-00807-4 (see Methods).
+                number of time steps. If None (default) the model runs until the 
+                steady state is reached. The convergence criterion on the opinions 
+                is the one presented in https://www.nature.com/articles/s42005-022-00807-4 
+                (Methods); after it is satisfied, the process stil run for a number
+                of time steps equal to the number of different opinions left. In this
+                way, in case of small esplilon, we let the possibility for isolated
+                nodes to find a group to converge with. The resolution toi compare 
+                opinions and count the number of unique ones is set to the 4th decimal.
                 
         condition (str):
                 rule to decide whether a group converges to a common opinion or not.
@@ -146,13 +151,15 @@ class HAD_model:
         op0 = self.opinions.copy()
         nodes = self.nodes.copy()
         results = {'groups': [self.groups.copy()],
-                  'opinions': {n: [op0[n]] for n in nodes}
-                  }
+                  'opinions': {n: [op0[n]] for n in nodes} }
+        
+        flag = False   # variable for managing the steady state
+        t = 0
         if T is None:
-            TT=1
+            TT=2       # inizialize TT to start the process
         else:
             TT = T
-        t = 0
+        
         while t<TT:
 
             old_groups, to_rewire = [], []
@@ -182,7 +189,11 @@ class HAD_model:
                             to_rewire.remove(group)
                         splt = self.split(group, split_overlap, split_seed)
                         to_rewire += [i for i in splt if i not in to_rewire]
-
+            
+            # avoid last rewiring if opinion already converged but structure not yet
+            if t == TT-1 and T is None:
+                adaptive = False
+                
             if adaptive:
                 # rewire groups that have just split
                 while len(to_rewire)>0:
@@ -208,7 +219,8 @@ class HAD_model:
                     # the group does not rewire
                     else:
                         to_rewire.remove(tr)
-
+                        
+            # store results for this time step
             op_t = self.opinions.copy()
             for n in nodes:
                 results['opinions'][n].append(op_t[n])
@@ -216,13 +228,26 @@ class HAD_model:
             
             t+=1
             if T is None:
-                convergence = sum(
+                # verify convergence conditions on opinions
+                conv = sum(
                     [ abs(op_t[n] - results['opinions'][n][-2]) for n in nodes ]
                 )
-                if convergence < 0.001:
-                    break
-                else:
-                    TT+=1
+                if conv < 0.001 and not flag:
+                    # number of different opinions (cut to 4th decimal) at steady state
+                    n_ops = len( {np.round(op_t[n], 4) for n in nodes} )
+                    # if opinions converge, I let a bit of time for the structure to relax.
+                    # In case of small epsilon, after convergence there will still be small
+                    # groups of nodes searching for a group to agree with. By setting
+                    # TT = t + n_ops, I give them the possibility to explore other groups
+                    # with possibly different opinions. If in the meantime the opinions
+                    # restart evolving, I keep the simulation running and discard the first 
+                    # convergence (this is done via the 'flag' variable).
+                    TT = t + n_ops
+                    flag = True
+                    #print('opinions converged at time', t-1, 'continuing for', n_ops, 'more time steps.')
+                elif conv > 0.001:
+                    TT = t+2   # keep the process running
+                    flag = False
                 
         return results
         
