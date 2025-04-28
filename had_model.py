@@ -1,6 +1,5 @@
 import numpy as np
 import random
-from tqdm import tqdm
 
 
 class HAD_model:
@@ -101,14 +100,16 @@ class HAD_model:
 
 
     
-    def simulate(self, T, condition='std', mu=1., split_overlap=True, split_seed='random', alpha=1., adaptive=True):
+    def simulate(self, T=None, condition='std', mu=1., split_overlap=True, split_seed='random', alpha=1., adaptive=True):
         """
         Simulates the higher-order adaptive Deffuant dynamics.
 
         Parameters:
         -----------
         T (int):
-                number of time steps.
+                number of time steps. If None (default) the model runs until the steady
+                state is reached. The convergence criterion is the one presented in
+                https://www.nature.com/articles/s42005-022-00807-4 (see Methods).
                 
         condition (str):
                 rule to decide whether a group converges to a common opinion or not.
@@ -147,8 +148,12 @@ class HAD_model:
         results = {'groups': [self.groups.copy()],
                   'opinions': {n: [op0[n]] for n in nodes}
                   }
-        
-        for t in tqdm(range(T)):
+        if T is None:
+            TT=1
+        else:
+            TT = T
+        t = 0
+        while t<TT:
 
             old_groups, to_rewire = [], []
             grps = self.groups.copy()
@@ -208,6 +213,16 @@ class HAD_model:
             for n in nodes:
                 results['opinions'][n].append(op_t[n])
             results['groups'].append(self.groups.copy())
-
+            
+            t+=1
+            if T is None:
+                convergence = sum(
+                    [ abs(op_t[n] - results['opinions'][n][-2]) for n in nodes ]
+                )
+                if convergence < 0.001:
+                    break
+                else:
+                    TT+=1
+                
         return results
         
