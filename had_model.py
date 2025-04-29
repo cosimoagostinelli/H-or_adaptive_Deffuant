@@ -23,7 +23,7 @@ class HAD_model:
         
         """
         self.epsilon = epsilon
-        self.groups = groups
+        self.groups = groups.copy()
         self.nodes = set()
         for gr in groups:
             self.nodes |= gr
@@ -148,6 +148,7 @@ class HAD_model:
                 containing the list of groups (set) at each timestep. results['opinions'] is
                 a dictionary containing the opinions of nodes across time, keyed by nodes' IDs.
         """
+        # store initial conditions
         op0 = self.opinions.copy()
         nodes = self.nodes.copy()
         results = {'groups': [self.groups.copy()],
@@ -189,17 +190,25 @@ class HAD_model:
                             to_rewire.remove(group)
                         splt = self.split(group, split_overlap, split_seed)
                         to_rewire += [i for i in splt if i not in to_rewire]
+
+            
+            # store results for this time step. The groups are stored before rewiring.
+            op_t = self.opinions.copy()
+            for n in nodes:
+                results['opinions'][n].append(op_t[n])
+            results['groups'].append(self.groups.copy())
+            
             
             # avoid last rewiring if opinion already converged but structure not yet
-            if t == TT-1 and T is None:
-                adaptive = False
+            #if t == TT-1 and T is None:
+            #    adaptive = False
                 
             if adaptive:
                 # rewire groups that have just split
                 while len(to_rewire)>0:
                     tr = random.choice(to_rewire)
                     p = 1. / ( len(tr) ** alpha)
-                    # the group joins another one
+                    # the group might join another one
                     if random.random() < p:
                         self.groups.remove(tr)
                         probs = [1. / (len(j|tr) ** alpha) for j in self.groups]
@@ -212,20 +221,11 @@ class HAD_model:
                         # merge groups
                         self.groups.remove(target)
                         self.groups.append(new_g)
-                        to_rewire.remove(tr)
                         if target in to_rewire:
                             to_rewire.remove(target)
-                    
-                    # the group does not rewire
-                    else:
-                        to_rewire.remove(tr)
+
+                    to_rewire.remove(tr)               
                         
-            # store results for this time step
-            op_t = self.opinions.copy()
-            for n in nodes:
-                results['opinions'][n].append(op_t[n])
-            results['groups'].append(self.groups.copy())
-            
             t+=1
             if T is None:
                 # verify convergence conditions on opinions
