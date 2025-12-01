@@ -11,7 +11,7 @@ class HAD_model:
         Parameters:
         -----------
         epsilon (float):
-                threshold for convergence of opinions (must be in [0,1]).
+                confidence threshold for agreement (must be in [0,1]).
         
         groups (list of sets):
                 hyperedges containing the nodes.
@@ -100,7 +100,8 @@ class HAD_model:
 
 
     
-    def simulate(self, T=None, condition='std', mu=1., split_overlap=True, split_seed='random', alpha=1., adaptive=True):
+    def simulate(self, T=None, condition='max_min', mu=1., split_overlap=True, split_seed='random',
+                 alpha=1., adaptive=True, sgbr=True):
         """
         Simulates the higher-order adaptive Deffuant dynamics.
 
@@ -113,17 +114,17 @@ class HAD_model:
                 (Methods); after it is satisfied, the process stil run for a number
                 of time steps equal to the number of different opinions left. In this
                 way, in case of small esplilon, we let the possibility for isolated
-                nodes to find a group to converge with. The resolution toi compare 
+                nodes to find a group to converge with. The resolution to compare 
                 opinions and count the number of unique ones is set to the 4th decimal.
                 
         condition (str):
                 rule to decide whether a group converges to a common opinion or not.
-                Can be 'std' (default) of max_min.
+                Can be 'std' or 'max_min' (default).
         
         mu (float):
-                parameter controlling the convergence of opinions within a group when
-                the convergence rule is satisfied. Default is 1, meaning that all the
-                opinions converge to the mean one. The convergence rule is:
+                parameter controlling the update of opinions within a group when
+                the agreement rule is satisfied. Default is 1, meaning that all the
+                opinions converge to the mean one. The update rule is:
                 x_i (t+1)  =  mu * <x>  +  x_i (t) * (1-mu) ,
                 where <x> is the average opinion of the group.
                 
@@ -141,20 +142,34 @@ class HAD_model:
         adaptive (bool):
                 whether to simulate an adaptive process, i.e. with split and rewiring of
                 groups (default), or just a Deffuant dynamics on a static hypergraph.
+
+        sgbr (bool):
+                "Store Groups Before Rewiring", i.e., whether to store the hyperedges 
+                at each time step before (default) or after the rewiring of hyperedges 
+                coming from a split event.
         -----------
         
         Return (dict):
                 the results stored in a dictionary. results['groups'] is a list of length T 
-                containing the list of groups (set) at each timestep. results['opinions'] is
+                containing the lists of groups (sets) at each timestep. results['opinions'] is
                 a dictionary containing the opinions of nodes across time, keyed by nodes' IDs.
+                results['n_events'] is a dictionary keyed by 'agree', 'split', 'merge', 
+                containing the lists of number of events of each kind at each time step.
+                For example, results['n_events']['split'] is a list of length T where the t-th 
+                entry is the number of splits occurred at time t.
         """
         # store initial conditions
         op0 = self.opinions.copy()
         nodes = self.nodes.copy()
-        results = {'groups': [self.groups.copy()],
-                  'opinions': {n: [op0[n]] for n in nodes} }
+        results = {
+            'groups': [self.groups.copy()],
+            'opinions': {n: [op0[n]] for n in nodes}, 
+            'n_events': {'agree': [],
+                        'split': [],
+                        'merge': []}
+                  }
         
-        flag = False   # variable for managing the steady state
+        flag = False   # variable managing the steady state
         t = 0
         if T is None:
             TT=2       # inizialize TT to start the process
@@ -163,6 +178,7 @@ class HAD_model:
         
         while t<TT:
 
+            n_agree, n_split, n_merge = 0, 0, 0
             old_groups, to_rewire = [], []
             grps = self.groups.copy()
             random.shuffle(grps)
@@ -175,12 +191,14 @@ class HAD_model:
                     val = max(ops) - min(ops)
                 # agreement
                 if val < self.epsilon:
+                    n_agree += 1
                     mean = np.mean(ops)
                     for n in group:
                         self.opinions[n] = self.opinions[n] * (1-mu) + mu * mean
                 # splitting
                 else:
                     if adaptive:
+                        n_split += 1
                         #keep track of groups that have just split
                         old_groups.append(group)
                         # if the current group is equal to a subgroup resulting from previous
@@ -191,17 +209,9 @@ class HAD_model:
                         splt = self.split(group, split_overlap, split_seed)
                         to_rewire += [i for i in splt if i not in to_rewire]
 
-            
-            # store results for this time step. The groups are stored before rewiring.
-            op_t = self.opinions.copy()
-            for n in nodes:
-                results['opinions'][n].append(op_t[n])
-            results['groups'].append(self.groups.copy())
-            
-            
-            # avoid last rewiring if opinion already converged but structure not yet
-            #if t == TT-1 and T is None:
-            #    adaptive = False
+            # If sgbr==True, the groups are stored before rewiring.
+            if sgbr:
+                results['groups'].append(self.groups.copy())            
                 
             if adaptive:
                 # rewire groups that have just split
@@ -219,16 +229,29 @@ class HAD_model:
                             target = self.groups[idx]
                             new_g = tr|target
                         # merge groups
+                        n_merge += 1
                         self.groups.remove(target)
                         self.groups.append(new_g)
                         if target in to_rewire:
                             to_rewire.remove(target)
 
                     to_rewire.remove(tr)               
-                        
+
+            
+            # store results for this time step
+            op_t = self.opinions.copy()
+            for n in nodes:
+                results['opinions'][n].append(op_t[n])
+            results['n_events']['agree'].append(n_agree)
+            results['n_events']['split'].append(n_split)
+            results['n_events']['merge'].append(n_merge)
+            # store hyperedges if not done before
+            if not sgbr:
+                results['groups'].append(self.groups.copy())
+                
             t+=1
             if T is None:
-                # verify convergence conditions on opinions
+                # verify convergence condition on opinions
                 conv = sum(
                     [ abs(op_t[n] - results['opinions'][n][-2]) for n in nodes ]
                 )
