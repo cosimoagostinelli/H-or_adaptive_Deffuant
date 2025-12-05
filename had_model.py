@@ -1,12 +1,50 @@
 import numpy as np
 import random
+import xgi
+
+
+def stratified_er_hypergraph (N, ps, p_type='prob', seed=None):
+    
+    """""""""""
+    Generates a hypergraph by overlapping multiple layers. Each layer is a higher-order 
+    Erdos-Renyi model for a specific hyperedge size. 
+    
+    Parameters:
+    ---------------
+    N (int) : Number of nodes.
+   
+    ps (list) : Each entry ps[s] si the probability of an s-hyperedge if p_type=”prob” 
+                and mean expected degree if p_type=”degree”.
+                
+    p_type (str, optional) : Determines the way ps is interpreted (see ps for detail). 
+                             Valid options are “prob” or “degree”, by default “prob”.
+  
+    seed : seed for random numbers generator.
+    ---------------
+    
+    Notes: len(ps) = m-1, where m is the maximum hyperedge size.
+    """""""""""
+    
+    nodes = range(N)
+    H = xgi.Hypergraph()
+    H.add_nodes_from(nodes)
+    m_max = len(ps)    
+    
+    for s in range(m_max):
+        if ps[s]>0:
+            H_s = xgi.uniform_erdos_renyi_hypergraph(N, s+2, ps[s], p_type=p_type, seed=seed)
+            edges = H_s.edges.members()
+            H.add_edges_from(edges)
+            
+    return(H)
+
 
 
 class HAD_model:
 
     def __init__(self, epsilon, groups, opinions=None):
         """
-        Class for the higher-order adaptive Deffuant model.
+        Class for the adaptive Deffuant model with group (higher-order) interactions.
 
         Parameters:
         -----------
@@ -101,17 +139,17 @@ class HAD_model:
 
     
     def simulate(self, T=None, condition='max_min', mu=1., split_overlap=True, split_seed='random',
-                 alpha=1., adaptive=True, sgbr=True):
+                 alpha=1., adaptive=True):
         """
-        Simulates the higher-order adaptive Deffuant dynamics.
+        Simulates the adaptive Deffuant dynamics with group (higher-order) interactions.
 
         Parameters:
         -----------
         T (int):
                 number of time steps. If None (default) the model runs until the 
                 steady state is reached. The convergence criterion on the opinions 
-                is the one presented in https://www.nature.com/articles/s42005-022-00807-4 
-                (Methods); after it is satisfied, the process stil run for a number
+                is the one presented in (Schawe & Hernandez, CommPhys 2022, see 
+                Methods); after it is satisfied, the process stil run for a number
                 of time steps equal to the number of different opinions left. In this
                 way, in case of small esplilon, we let the possibility for isolated
                 nodes to find a group to converge with. The resolution to compare 
@@ -142,11 +180,7 @@ class HAD_model:
         adaptive (bool):
                 whether to simulate an adaptive process, i.e. with split and rewiring of
                 groups (default), or just a Deffuant dynamics on a static hypergraph.
-
-        sgbr (bool):
-                "Store Groups Before Rewiring", i.e., whether to store the hyperedges 
-                at each time step before (default) or after the rewiring of hyperedges 
-                coming from a split event.
+                
         -----------
         
         Return (dict):
@@ -209,9 +243,8 @@ class HAD_model:
                         splt = self.split(group, split_overlap, split_seed)
                         to_rewire += [i for i in splt if i not in to_rewire]
 
-            # If sgbr==True, the groups are stored before rewiring.
-            if sgbr:
-                results['groups'].append(self.groups.copy())            
+            if t == TT-1:
+                groups_before_merge = self.groups.copy()
                 
             if adaptive:
                 # rewire groups that have just split
@@ -236,7 +269,7 @@ class HAD_model:
                             to_rewire.remove(target)
 
                     to_rewire.remove(tr)               
-
+                    
             
             # store results for this time step
             op_t = self.opinions.copy()
@@ -245,9 +278,7 @@ class HAD_model:
             results['n_events']['agree'].append(n_agree)
             results['n_events']['split'].append(n_split)
             results['n_events']['merge'].append(n_merge)
-            # store hyperedges if not done before
-            if not sgbr:
-                results['groups'].append(self.groups.copy())
+            results['groups'].append(self.groups.copy())
                 
             t+=1
             if T is None:
@@ -271,6 +302,9 @@ class HAD_model:
                 elif conv > 0.001:
                     TT = t+2   # keep the process running
                     flag = False
-                
+
+        # store groups at last time steps BEFORE rewiring to highlight isleted ones
+        results['groups'][-1] = groups_before_merge
+        
         return results
         
