@@ -1,2 +1,2 @@
-# H-or_adaptive_Deffuant
-Code to simulate the adaptive Deffuant model with group interactions
+# Higher-order adaptive Deffuant model
+Code to simulate the adaptive Deffuant model with group interactions.
