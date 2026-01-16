@@ -296,15 +296,58 @@ class HAD_model:
                     # with possibly different opinions. If in the meantime the opinions
                     # restart evolving, I keep the simulation running and discard the first 
                     # convergence (this is done via the 'flag' variable).
-                    TT = t + n_ops
+                    TT = t + n_ops * 10
                     flag = True
-                    #print('opinions converged at time', t-1, 'continuing for', n_ops, 'more time steps.')
+                    #print('opinions converged at time', t-1, 'continuing for', 10*n_ops, 'more time steps.')
                 elif conv > 0.001:
                     TT = t+2   # keep the process running
                     flag = False
 
-        # store groups at last time steps BEFORE rewiring to highlight isleted ones
+        # store groups at last time steps BEFORE rewiring to highlight isolated ones
         results['groups'][-1] = groups_before_merge
         
         return results
-        
+
+
+
+# draw N variables from bimodal distribution in [0,1]
+def bimodal_distribution(N, means, std):
+    n_samp = N*2
+    samp1 = np.random.normal(means[0], std, n_samp)
+    samp2 = np.random.normal(means[1], std, n_samp)
+    samp = [i for i in np.hstack((samp1,samp2)) if i>0. and i<1.]
+    random.shuffle(samp)
+    return samp[:N]
+
+
+
+# auxiliary functions to parallelize computations
+
+def get_results(args):
+
+    N, ks_avg, eps, cond, bimod, means, std = args
+    H = stratified_er_hypergraph(N, ks_avg, p_type='degree')
+    H.cleanup()
+    groups_0 = H.edges.members()
+    opinions_0 = bimodal_distribution(N, means, std) if bimod else None
+    
+    Model = HAD_model(eps, groups_0, opinions_0)
+    results = Model.simulate(condition=cond)
+    opinions = results['opinions']
+    groups = results['groups']
+    n_events = results['n_events']
+
+    return (groups, opinions, H, n_events)
+
+
+
+def get_results_SP(args):
+
+    H, eps, cond = args
+    groups_0 = H.edges.members()
+    Model = HAD_model(eps, groups_0)
+    results = Model.simulate(condition=cond)
+    opinions = results['opinions']
+    groups = results['groups']
+
+    return (groups, opinions, len(groups_0))
